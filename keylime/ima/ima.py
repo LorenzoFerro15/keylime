@@ -13,9 +13,11 @@ from keylime.common import algorithms, validators
 from keylime.common.algorithms import Hash
 from keylime.dsse import dsse
 from keylime.failure import Component, Failure
-from keylime.ima import ast, file_signatures, ima_dm
+from keylime.ima import ast, file_signatures, ima_dm, ima_extension
 from keylime.ima.file_signatures import ImaKeyrings
 from keylime.ima.types import RuntimePolicyType
+from keylime.ima.ima_extension import extension_simulation
+
 
 logger = keylime_logging.init_logging("ima")
 
@@ -215,6 +217,57 @@ def _validate_ima_buf(
     # Anything else evaluates to true for now
     return failure
 
+def _validate_ima_nsid_cnt(
+    exclude_regex: Optional[Pattern[str]],
+    runtime_policy: Optional[RuntimePolicyType],
+    digest: ast.Digest,
+    path: ast.Name,
+    ns_id: int,
+    cnt: int,
+    hash_types: str = "digests",
+) -> Failure:
+    failure = Failure(Component.IMA, ["validation", "ima-nsid-cnt"])
+    if runtime_policy is not None:
+        if exclude_regex is not None and exclude_regex.match(path.name):
+            logger.debug("IMA: ignoring excluded path %s", path)
+            return failure
+
+        accept_list = runtime_policy[hash_types].get(path.name, None)  # type: ignore
+        if accept_list is None:
+            logger.warning("File not found in allowlist: %s", path.name)
+            failure.add_event("not_in_allowlist", f"File not found in allowlist: {path.name}", True)
+            return failure
+
+        hex_hash = digest.hash.hex()
+        if hex_hash not in accept_list:
+            logger.warning(
+                "Hashes for file %s don't match %s not in %s",
+                path.name,
+                hex_hash,
+                str(accept_list),
+            )
+            failure.add_event(
+                "runtime_policy_hash",
+                {
+                    "message": "Hash not found in runtime policy",
+                    "got": hex_hash,
+                    "expected": accept_list,
+                },
+                True,
+            )
+            return failure
+
+        if ns_id is None:
+            failure.add_event("no ns_id present", f"does not have the identifier of the namespace", True)
+            return failure
+        
+        if cnt is None:
+            failure.add_event("no cnt present", f"does not have the counter of extensions", True)
+            return failure
+
+    return failure
+
+
 
 def _process_measurement_list(
     agentAttestState: AgentAttestState,
@@ -285,6 +338,7 @@ def _process_measurement_list(
             ast.ImaBuf: functools.partial(
                 _validate_ima_buf, exclude_list_compiled_regex, runtime_policy, ima_keyrings, dm_validator
             ),
+            ast.ImaNsIdCnt: functools.partial(_validate_ima_nsid_cnt, exclude_list_compiled_regex, runtime_policy)
         }
     )
 
@@ -307,6 +361,19 @@ def _process_measurement_list(
 
         try:
             entry = ast.Entry(line, ima_validator, ima_hash_alg=ima_log_hash_alg, pcr_hash_alg=hash_alg)
+
+            extension_list = extension_simulation(line, hash_alg)
+
+            if extension_list != None:
+                for line_created in extension_list:
+                    entry_sim = ast.Entry(line_created, ima_validator, ima_hash_alg=ima_log_hash_alg, pcr_hash_alg=hash_alg)
+                    running_hash = hash_alg.hash(running_hash + entry_sim.pcr_template_hash)
+
+                    validation_failure = entry_sim.invalid()
+
+                    if validation_failure:
+                        failure.merge(validation_failure)
+                        errors[type(entry_sim.mode)] = errors.get(type(entry_sim.mode), 0) + 1
 
             # update hash
             running_hash = hash_alg.hash(running_hash + entry.pcr_template_hash)

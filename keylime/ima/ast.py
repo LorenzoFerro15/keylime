@@ -216,7 +216,7 @@ class Ima(Mode):
     def is_data_valid(self, validator: Validator) -> Failure:
         return validator.get_validator(type(self))(self.digest, self.path)
 
-
+# CLASS FOR HANDLE IMA TEMPLATES
 class ImaNg(Mode):
     """
     Class for "ima-ng". Contains the digest and a path.
@@ -317,6 +317,31 @@ class ImaBuf(Mode):
 
     def is_data_valid(self, validator: Validator) -> Failure:
         return validator.get_validator(type(self))(self.digest, self.name, self.data)
+    
+class ImaNsIdCnt(Mode):
+    """
+    Class for "ima-nsid-cnt". Contains the digest, path, namespace identifier and counter
+    """
+
+    digest: Digest
+    path: Name
+    ns_id: int
+    counter: int
+
+    def __init__(self, data: str):
+        tokens = data.split(" ", maxsplit=3)
+        if len(tokens) != 4:
+            raise ParserError(f"Cannot create imaNsIdCnt expected 2 tokens got: {len(tokens)}.")
+        self.digest = Digest(tokens[0])
+        self.path = Name(tokens[1])
+        self.ns_id = int(tokens[2])
+        self.counter = int(tokens[3])
+
+    def bytes(self) -> bytes:
+        return self.digest.struct() + self.path.struct()
+
+    def is_data_valid(self, validator: Validator) -> Failure:
+        return validator.get_validator(type(self))(self.digest, self.path, self.ns_id, self.counter)
 
 
 class Entry:
@@ -333,11 +358,12 @@ class Entry:
     _ima_hash_alg: Hash
     _pcr_hash_alg: Hash
 
-    _mode_lookup: Dict[str, Union[typing.Type[Ima], typing.Type[ImaNg], typing.Type[ImaSig], typing.Type[ImaBuf]]] = {
+    _mode_lookup: Dict[str, Union[typing.Type[Ima], typing.Type[ImaNg], typing.Type[ImaSig], typing.Type[ImaBuf], typing.Type[ImaNsIdCnt]]] = {
         "ima": Ima,
         "ima-ng": ImaNg,
         "ima-sig": ImaSig,
         "ima-buf": ImaBuf,
+        "ima-ns-id-cnt": ImaNsIdCnt,
     }
 
     def __init__(
@@ -362,6 +388,7 @@ class Entry:
         mode = self._mode_lookup.get(tokens[2], None)
         if mode is None:
             raise ParserError(f"No parser for mode {tokens[2]} implemented.")
+        # allocation depending on the template
         self.mode = mode(tokens[3])
         self._bytes = self.mode.bytes()
         self.pcr_template_hash = self._pcr_hash_alg.hash(self._bytes)
