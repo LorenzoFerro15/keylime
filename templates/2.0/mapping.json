@@ -385,6 +385,223 @@
                 "default": ""
             }
         },
+        "clientverifier": {
+            "version": {
+                "section": "client_verifier",
+                "option": "version",
+                "default": "2.0"
+            },
+            "uuid": {
+                "section": "client_verifier",
+                "option": "clientverifier_id",
+                "default": "default"
+            },
+            "ip": {
+                "section": "client_verifier",
+                "option": "clientverifier_ip",
+                "default": "127.0.0.1"
+            },
+            "port": {
+                "section": "client_verifier",
+                "option": "clientverifier_port",
+                "default": "8881"
+            },
+            "registrar_ip": {
+                "section": "client_verifier",
+                "option": "registrar_ip",
+                "default": "127.0.0.1"
+            },
+            "registrar_port": {
+                "section": "client_verifier",
+                "option": "registrar_port",
+                "default": "8881"
+            },
+            "cloud_verifier_ip": {
+                "section": "client_verifier",
+                "option": "cloudverifier_ip",
+                "default": "127.0.0.1"
+            },
+            "cloud_verifier_port": {
+                "section": "client_verifier",
+                "option": "cloudverifier_port",
+                "default": "8881"
+            },
+            "tls_dir": {
+                "section": "client_verifier",
+                "option": "tls_dir",
+                "default": "generate"
+            },
+            "trusted_client_ca": {
+                "section": "client_verifier",
+                "option": "ca_cert",
+                "default": "default"
+            },
+            "server_cert": {
+                "section": "client_verifier",
+                "option": "my_cert",
+                "default": "default"
+            },
+            "server_key": {
+                "section": "client_verifier",
+                "option": "private_key",
+                "default": "default"
+            },
+            "server_key_password": {
+                "section": "client_verifier",
+                "option": "private_key_pw",
+                "default": ""
+            },
+            "enable_agent_mtls": {
+                "section": "client_verifier",
+                "option": "agent_mtls_cert_enabled",
+                "default": "True"
+            },
+            "client_cert": {
+                "section": "client_verifier",
+                "option": "agent_mtls_cert",
+                "default": "default"
+            },
+            "client_key": {
+                "section": "client_verifier",
+                "option": "agent_mtls_private_key",
+                "default": "default"
+            },
+            "client_key_password": {
+                "section": "client_verifier",
+                "option": "agent_mtls_private_key_pw",
+                "default": ""
+            },
+            "trusted_server_ca": {
+                "section": "client_verifier",
+                "option": "agent_mtls_cert",
+                "default": "default"
+            },
+            "database_url": {
+                "section": "client_verifier",
+                "option": "database_url",
+                "default": "sqlite"
+            },
+            "database_pool_sz_ovfl": {
+                "section": "client_verifier",
+                "option": "database_pool_sz_ovfl",
+                "default": "5,10"
+            },
+            "auto_migrate_db": {
+                "section": "client_verifier",
+                "option": "auto_migrate_db",
+                "default": "True"
+            },
+            "num_workers": {
+                "section": "client_verifier",
+                "option": "multiprocessing_pool_num_workers",
+                "default": "0"
+            },
+            "exponential_backoff": {
+                "section": "client_verifier",
+                "option": "exponential_backoff",
+                "default": "True"
+            },
+            "retry_interval": {
+                "section": "client_verifier",
+                "option": "retry_interval",
+                "default": "2"
+            },
+            "max_retries": {
+                "section": "client_verifier",
+                "option": "max_retries",
+                "default": "5"
+            },
+            "request_timeout": {
+                "section": "client_verifier",
+                "option": "request_timeout",
+                "default": "60.0"
+            },
+            "quote_interval": {
+                "section": "client_verifier",
+                "option": "quote_interval",
+                "default": "2"
+            },
+            "max_upload_size": {
+                "section": "client_verifier",
+                "option": "max_upload_size",
+                "default": "104857600"
+            },
+            "measured_boot_policy_name": {
+                "section": "client_verifier",
+                "option": "measured_boot_policy_name",
+                "default": "accept-all"
+            },
+            "measured_boot_imports": {
+                "section": "client_verifier",
+                "option": "measured_boot_imports",
+                "default": "[]"
+            },
+            "severity_labels": {
+                "section": "client_verifier",
+                "option": "severity_labels",
+                "default": "[\"info\", \"notice\", \"warning\", \"error\", \"critical\", \"alert\", \"emergency\"]"
+            },
+            "severity_policy": {
+                "section": "client_verifier",
+                "option": "severity_policy",
+                "default": "[{\"event_id\": \".*\", \"severity_label\" : \"emergency\"}]"
+            },
+            "ignore_tomtou_errors": {
+                "section": "client_verifier",
+                "option": "tomtou_errors",
+                "default": "False"
+            },
+            "require_allow_list_signatures": {
+                "section": "client_verifier",
+                "option": "require_allow_list_signatures",
+                "default": "True"
+            },
+            "durable_attestation_import" : {
+                "section": "client_verifier",
+                "option": "durable_attestation_import",
+                "default": ""
+            },
+            "persistent_store_url" : {
+                "section": "client_verifier",
+                "option": "persistent_store_url",
+                "default": ""
+            },
+            "transparency_log_url" : {
+                "section": "client_verifier",
+                "option": "transparency_log_url",
+                "default": ""
+            },
+            "time_stamp_authority_url" : {
+                "section": "client_verifier",
+                "option": "time_stamp_authority_url",
+                "default": ""
+            },
+            "time_stamp_authority_certs_path" : {
+                "section": "client_verifier",
+                "option": "time_stamp_authority_certs_path",
+                "default": ""
+            },
+            "persistent_store_format" : {
+                "section": "client_verifier",
+                "option": "persistent_store_format",
+                "default": "json"
+            },
+            "persistent_store_encoding" : {
+                "section": "client_verifier",
+                "option": "persistent_store_encoding",
+                "default": ""
+            },
+            "transparency_log_sign_algo" : {
+                "section": "client_verifier",
+                "option": "transparency_log_sign_algo",
+                "default": "sha256"
+            },
+            "signed_attributes" : {
+                "section": "client_verifier",
+                "option": "signed_attributes",
+                "default": ""
+            }
+        },
         "revocations": {
             "enabled_revocation_notifications": {
                 "section": "cloud_verifier",
@@ -436,7 +653,7 @@
             "tls_dir": {
                 "section": "tenant",
                 "option": "tls_dir",
-                "default": "default"
+                "default": "generate"
             },
             "enable_agent_mtls": {
                 "section": "tenant",

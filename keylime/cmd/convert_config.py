@@ -92,7 +92,7 @@ from jinja2 import Template
 
 from keylime.common.version import str_to_version
 
-COMPONENTS = ["agent", "verifier", "tenant", "registrar", "ca", "logging"]
+COMPONENTS = ["agent", "verifier", "tenant", "registrar", "ca", "logging", "clientverifier"]
 
 CONFIG_DIRS = ["/usr/etc/keylime", "/etc/keylime"]
 
@@ -122,6 +122,9 @@ if "KEYLIME_CA_CONFIG" in os.environ:
 
 if "KEYLIME_LOGGING_CONFIG" in os.environ:
     CONFIG_FILES.insert(0, os.environ["KEYLIME_LOGGING_CONFIG"])
+
+if "KEYLIME_CLIENT_VERIFIER_CONFIG" in os.environ:
+    CONFIG_FILES.insert(0, os.environ("KEYLIME_CLIENT_VERIFIER_CONFIG"))
 
 
 def get_config(config_files: List[List[str]]) -> RawConfigParser:
@@ -356,7 +359,7 @@ def process_mapping(
         except Exception as e:
             print(f"Failed while running adjustment from {adjust_script}: {e}")
 
-    if debug:
+    if True:
         out = {}
         for s in new.sections():
             out[s] = dict(new.items(s))

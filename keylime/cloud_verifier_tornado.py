@@ -37,6 +37,7 @@ from keylime.db.keylime_db import DBEngineManager, SessionManager
 from keylime.db.verifier_db import VerfierMain, VerifierAllowlist
 from keylime.failure import MAX_SEVERITY_LABEL, Component, Event, Failure, set_severity_config
 from keylime.ima import ima
+from keylime.crypto import rsa_import_privkey, rsa_sign, get_public_key
 
 logger = keylime_logging.init_logging("verifier")
 
@@ -293,6 +294,161 @@ class VersionHandler(BaseHandler):
 
     def data_received(self, chunk: Any) -> None:
         raise NotImplementedError()
+
+def sign_and_prep(to_sign: bytes, privkey: Union[str, bytes]):
+    message = {}
+    byts: bytes
+    if isinstance(privkey, str):
+        print("reading file")
+        with open(privkey, "rb") as fobj:
+            byts = fobj.read()
+            print(byts)
+    else:
+        byts = privkey
+    private_key = rsa_import_privkey(privkey=byts)
+    message["signature"] = rsa_sign(private_key, to_sign)
+    message["public_key"] = get_public_key(private_key)
+    message["measurement_list"] = to_sign[:]
+
+    return message
+
+
+class AgentNsHandler(BaseHandler):
+    def __validate_input(self, method: str) -> Tuple[Optional[Dict[str, Union[str, None]]], Optional[str]]:
+        if self.request.uri is None:
+            web_util.echo_json_response(self, 400, "URI not specified")
+            return None, None
+
+        rest_params = web_util.get_restful_params(self.request.uri)
+        if rest_params is None:
+            web_util.echo_json_response(self, 405, "Not Implemented: Use /id/identifier_of_the_ima_namespace")
+            return None, None
+        
+        if "id" not in rest_params:
+            web_util.echo_json_response(self, 400, "uri not supported")
+            logger.warning("%s returning 400 response. uri not supported: %s", method, self.request.path)
+            return None, None
+        
+        ima_ns_id = rest_params["id"]
+        agent_id = rest_params["agents"]
+
+        if not ima_ns_id or not ima_ns_id.isdigit():
+            web_util.echo_json_response(self, 400, "ima_ns_id not not valid")
+            logger.error("%s received an invalid agent ID: %s", method, ima_ns_id)
+            return None, None
+        
+        if not validators.valid_agent_id(agent_id):
+            web_util.echo_json_response(self, 400, "agent_id not not valid")
+            logger.error("%s received an invalid agent ID: %s", method, agent_id)
+            return None, None
+        
+        ima_ns_id = int(ima_ns_id)
+
+        return rest_params, ima_ns_id, agent_id
+    
+    def get(self) -> None:
+        session = get_session()
+
+        rest_params, ima_ns_id, agent_id = self.__validate_input("GET")
+        if not rest_params:
+            return
+
+        if ima_ns_id is not None and agent_id is not None:
+            print("ima ns id and agent_id found")
+            try:
+                agent = session.query(VerfierMain).filter_by(ima_policy_id=agent_id).one_or_none()
+            except SQLAlchemyError as e:
+                logger.error("SQLAlchemy Error for agent ID %s and ima_ns_id %d: %s", agent_id, ima_ns_id, e)
+            if agent is None:
+                web_util.echo_json_response(self, 404, "agent id not found or namespace id not valid")
+
+            runtime_policy = verifier_read_policy_from_cache(agent)
+
+            failure = Failure(Component.INTERNAL, ["verifier"])
+
+            params = cloud_verifier_common.prepare_get_quote(agent)
+
+            kwargs = {}
+            if agent["ssl_context"]:
+                kwargs["context"] = agent["ssl_context"]
+
+            loop = asyncio.get_event_loop()
+            res = loop.run_until_complete(tornado_requests.request(
+                "GET",
+                f"http://{agent['ip']}:{agent['port']}/v{agent['supported_version']}/quotes/integrity"
+                f"?nonce={params['nonce']}&mask={params['mask']}"
+                f"&partial={1}&ima_ml_entry={params['ima_ml_entry']}",
+                **kwargs,
+            ))
+
+            if res.status_code != 200:
+                if res.status_code in [408, 500, 599]:
+                    asyncio.ensure_future(process_agent(agent, states.GET_QUOTE_RETRY))
+                else:
+                    logger.critical(
+                        "Unexpected Get Quote response error for cloud agent %s, Error: %s",
+                        agent["agent_id"],
+                        res.status_code,
+                    )
+                    failure.add_event("no_quote", "Unexpected Get Quote reponse from agent", False)
+                    asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
+
+            else:
+                try:
+                    json_response = json.loads(res.body)
+
+                    if "provide_V" not in agent:
+                        agent["provide_V"] = True
+                    agentAttestState = get_AgentAttestStates().get_by_agent_id(agent["agent_id"])
+
+                    if rmc:
+                        rmc.record_create(agent, json_response, runtime_policy)
+
+                    failure = cloud_verifier_common.process_quote_response(
+                        agent,
+                        ima.deserialize_runtime_policy(runtime_policy),
+                        json_response["results"],
+                        agentAttestState,
+                    )
+                    if not failure:
+                        if agent["provide_V"]:
+                            asyncio.ensure_future(process_agent(agent, states.PROVIDE_V))
+                        else:
+                            asyncio.ensure_future(process_agent(agent, states.GET_QUOTE))
+                    else:
+                        asyncio.ensure_future(process_agent(agent, states.INVALID_QUOTE, failure))
+
+                    # store the attestation state
+                    store_attestation_state(agentAttestState)
+
+                    ima_measurement_list = (json_response["results"]).get("ima_measurement_list", None)
+
+                    ima_mes_lines = ima_measurement_list.split("\n")
+
+                    for linenum, line in enumerate(ima_mes_lines):
+                        tokens = line.split(" ")
+                        if tokens[2] == "ima-ng-ns-id" and int(tokens[5]) != ima_ns_id:
+                            ima_mes_lines.pop(linenum)
+
+                    namespace_list_str = ""
+
+                    for line in ima_mes_lines:
+                        namespace_list_str + line + '\n'
+
+                    response = sign_and_prep(str.encode(namespace_list_str), )
+                    if response:
+                        web_util.echo_json_response(self, 200, "Success", response)
+                    else:
+                        web_util.echo_json_response(self, 400, "Not Supported")
+
+                    
+
+                except Exception as e:
+                    logger.exception(e)
+                    failure.add_event(
+                        "exception", {"context": "Agent caused the verifier to throw an exception", "data": str(e)}, False
+                    )
+                    asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
 
 
 class AgentsHandler(BaseHandler):
@@ -1457,6 +1613,7 @@ def main() -> None:
 
     app = tornado.web.Application(
         [
+            (r"/v?[0-9]+(?:\.[0-9]+)?/agents/.*/ns/.*", AgentNsHandler),
             (r"/v?[0-9]+(?:\.[0-9]+)?/agents/.*", AgentsHandler),
             (r"/v?[0-9]+(?:\.[0-9]+)?/allowlists/.*", AllowlistHandler),
             (r"/versions?", VersionHandler),

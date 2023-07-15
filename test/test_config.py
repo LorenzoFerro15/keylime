@@ -35,6 +35,7 @@ class TestConfig(unittest.TestCase):
                 "registrar": ["/etc/keylime/registrar.conf", "/usr/etc/keylime/registrar.conf"],
                 "ca": ["/etc/keylime/ca.conf", "/usr/etc/keylime/ca.conf"],
                 "logging": ["/etc/keylime/logging.conf", "/usr/etc/keylime/logging.conf"],
+                "clientverifier": ["/etc/keylime/clientverifier.conf", "/usr/etc/keylime/clientverifier.conf"],
             },
         )
 

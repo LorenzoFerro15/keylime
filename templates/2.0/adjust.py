@@ -29,6 +29,11 @@ def adjust(config: RawConfigParser, mapping: Dict) -> None:  # pylint: disable=u
             "trusted_server_ca": {"CV": "default"},
             "database_url": {"": "sqlite"},
         },
+        "clientverifier": {
+            "client_cert": {"CV": "default"},
+            "trusted_server_ca": {"CV": "default"},
+            "database_url": {"": "sqlite"},
+        },
         "registrar": {"tls_dir": {"CV": "default"}, "database_url": {"": "sqlite"}},
     }
 
@@ -47,6 +52,12 @@ def adjust(config: RawConfigParser, mapping: Dict) -> None:  # pylint: disable=u
         "agent": [
             "trusted_client_ca",
             "revocation_actions",
+        ],
+        "clientverifier": [
+            "trusted_server_ca",
+            "severity_labels",
+            "severity_policy",
+            "measured_boot_imports",
         ],
         "verifier": [
             "trusted_server_ca",
@@ -157,6 +168,21 @@ def adjust(config: RawConfigParser, mapping: Dict) -> None:  # pylint: disable=u
                     if not config["verifier"][o] == "default":
                         config["verifier"][o] = "default"
                         print(f"[verifier] Replaced option '{o}' with 'default' as " f"'tls_dir' is set as 'generate'")
+
+        if section == "clientverifier":
+            if config["clientverifier"]["tls_dir"] == "generate":
+                for o in [
+                    "client_key",
+                    "client_cert",
+                    "trusted_server_ca",
+                    "server_key",
+                    "server_cert",
+                    "trusted_client_ca",
+                ]:
+                    if not config["clientverifier"][o] == "default":
+                        config["clientverifier"][o] = "default"
+                        print(f"[clientverifier] Replaced option '{o}' with 'default' as " f"'tls_dir' is set as 'generate'")
+
 
         if section == "registrar":
             if config["registrar"]["tls_dir"] == "generate":

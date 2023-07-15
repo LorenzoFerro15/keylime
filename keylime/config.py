@@ -78,6 +78,7 @@ CONFIG_FILES = {
     "registrar": ["/etc/keylime/registrar.conf", "/usr/etc/keylime/registrar.conf"],
     "ca": ["/etc/keylime/ca.conf", "/usr/etc/keylime/ca.conf"],
     "logging": ["/etc/keylime/logging.conf", "/usr/etc/keylime/logging.conf"],
+    "clientverifier": ["/etc/keylime/clientverifier.conf", "/usr/etc/keylime/clientverifier.conf"],
 }
 
 # Paths to directories in which options can be overriden using configuration
@@ -88,6 +89,7 @@ CONFIG_SNIPPETS_DIRS = {
     "registrar": ["/usr/etc/keylime/registrar.conf.d", "/etc/keylime/registrar.conf.d"],
     "ca": ["/usr/etc/keylime/ca.conf.d", "/etc/keylime/ca.conf.d"],
     "logging": ["/usr/etc/keylime/logging.conf.d", "/etc/keylime/logging.conf.d"],
+    "clientverifier": ["/usr/etc/keylime/clientverifier.conf.d", "/etc/keylime/clientverifier.conf.d"],
 }
 
 CONFIG_ENV = {
@@ -96,6 +98,7 @@ CONFIG_ENV = {
     "registrar": "",
     "ca": "",
     "logging": "",
+    "clientverifier": ""
 }
 
 # Add files from environment variables, if set
@@ -161,6 +164,8 @@ def get_config(component: str) -> RawConfigParser:
         '\nPlease use "keylime_upgrade_config --defaults" to create a minimalistic set of configurations.\n'
     )
 
+    print(_config.values())
+
     if component not in _config:  # pylint: disable=too-many-nested-blocks
         # Use RawConfigParser, so we can also use it as the logging config
         _config[component] = RawConfigParser()
@@ -210,6 +215,7 @@ def get_config(component: str) -> RawConfigParser:
             )
         else:
             for c in CONFIG_FILES[component]:
+                print(c)
                 # Search for configuration file in order of priority given by
                 # CONFIG_FILES. The first base configuration file found is used,
                 # the others are ignored

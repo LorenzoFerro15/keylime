@@ -411,7 +411,7 @@ mkdir -p /etc/keylime
 mkdir -p config
 python3 -m keylime.cmd.convert_config --defaults --out config --templates templates
 
-for comp in "agent" "verifier" "tenant" "registrar" "ca" "logging"; do
+for comp in "agent" "verifier" "tenant" "registrar" "ca" "logging" "clientverifier"; do
     mkdir -p /etc/keylime/$comp.conf.d
     if [[ -f "/etc/keylime/$comp.conf" ]] ; then
         if [[ $(diff -N "/etc/keylime/$comp.conf" "config/$comp.conf") ]] ; then
