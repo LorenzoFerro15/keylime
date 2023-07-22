@@ -13,7 +13,7 @@ logger = keylime_logging.init_logging("client_verifier")
 
 GLOBAL_POLICY_CACHE: Dict[str, Dict[str, str]] = {}
 
-async def validate_list(ns_golden_values: str, cloud_verifier, agent_id, ima_ns_id) -> bool:
+async def validate_list(ns_golden_values: str, cloud_verifier, container_id) -> bool:
     
     params = cloud_verifier_common.prepare_get_quote(cloud_verifier)
 
@@ -23,7 +23,7 @@ async def validate_list(ns_golden_values: str, cloud_verifier, agent_id, ima_ns_
    
     res = tornado_requests.request(
         "GET",
-        f"http://{cloud_verifier['ip']}:{cloud_verifier['port']}/v{cloud_verifier['supported_version']}/agents/{agent_id}/ns/{ima_ns_id}"
+        f"http://{cloud_verifier['ip']}:{cloud_verifier['port']}/v{cloud_verifier['supported_version']}/container/{container_id}"
         f"?nonce={params['nonce']}&mask={params['mask']}"
         f"&partial={0}&ima_ml_entry={params['ima_ml_entry']}",
         **kwargs
@@ -34,7 +34,7 @@ async def validate_list(ns_golden_values: str, cloud_verifier, agent_id, ima_ns_
     if response.status_code != 200:
         logger.critical(
             "Unexpected Get Quote response error for cloud agent %s, Error: %s",
-            agent_id,
+            container_id,
             response.status_code,
         )
         return False
@@ -50,7 +50,7 @@ async def validate_list(ns_golden_values: str, cloud_verifier, agent_id, ima_ns_
         # failure in signature verification
         logger.critical(
             "signatue of the namespace list verification failure on agent: %s",
-            agent_id
+            container_id
         )
         return False
 

@@ -321,134 +321,114 @@ class AgentNsHandler(BaseHandler):
 
         rest_params = web_util.get_restful_params(self.request.uri)
         if rest_params is None:
-            web_util.echo_json_response(self, 405, "Not Implemented: Use /id/identifier_of_the_ima_namespace")
+            web_util.echo_json_response(self, 405, "Not Implemented: Use /container/container-id")
             return None, None
         
-        if "id" not in rest_params:
+        if "container" not in rest_params:
             web_util.echo_json_response(self, 400, "uri not supported")
             logger.warning("%s returning 400 response. uri not supported: %s", method, self.request.path)
             return None, None
         
-        ima_ns_id = rest_params["id"]
-        agent_id = rest_params["agents"]
+        container_id = rest_params["container"]
 
-        if not ima_ns_id or not ima_ns_id.isdigit():
-            web_util.echo_json_response(self, 400, "ima_ns_id not not valid")
-            logger.error("%s received an invalid agent ID: %s", method, ima_ns_id)
+        if not container_id:
+            web_util.echo_json_response(self, 400, "container-id not not valid")
+            logger.error("%s received an invalid container-id: %s", method, container_id)
             return None, None
         
-        if not validators.valid_agent_id(agent_id):
-            web_util.echo_json_response(self, 400, "agent_id not not valid")
-            logger.error("%s received an invalid agent ID: %s", method, agent_id)
-            return None, None
-        
-        ima_ns_id = int(ima_ns_id)
-
-        return rest_params, ima_ns_id, agent_id
+        return rest_params, container_id
     
     def get(self) -> None:
         session = get_session()
 
-        rest_params, ima_ns_id, agent_id = self.__validate_input("GET")
+        rest_params, container_id = self.__validate_input("GET")
         if not rest_params:
             return
 
-        if ima_ns_id is not None and agent_id is not None:
-            print("ima ns id and agent_id found")
+        if container_id is not None:
+            print("container-id found")
             try:
-                agent = session.query(VerfierMain).filter_by(ima_policy_id=agent_id).one_or_none()
+                agents = session.query(VerfierMain).all()
             except SQLAlchemyError as e:
-                logger.error("SQLAlchemy Error for agent ID %s and ima_ns_id %d: %s", agent_id, ima_ns_id, e)
-            if agent is None:
-                web_util.echo_json_response(self, 404, "agent id not found or namespace id not valid")
+                logger.error("SQLAlchemy Error: no agents found")
+            if len(agents) == 0:
+                web_util.echo_json_response(self, 500, "no agents found")
 
-            runtime_policy = verifier_read_policy_from_cache(agent)
+            for agent in agents:
 
-            failure = Failure(Component.INTERNAL, ["verifier"])
+                runtime_policy = verifier_read_policy_from_cache(agent)
 
-            params = cloud_verifier_common.prepare_get_quote(agent)
+                failure = Failure(Component.INTERNAL, ["verifier"])
 
-            kwargs = {}
-            if agent["ssl_context"]:
-                kwargs["context"] = agent["ssl_context"]
+                params = cloud_verifier_common.prepare_get_quote(agent)
 
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(tornado_requests.request(
-                "GET",
-                f"http://{agent['ip']}:{agent['port']}/v{agent['supported_version']}/quotes/integrity"
-                f"?nonce={params['nonce']}&mask={params['mask']}"
-                f"&partial={1}&ima_ml_entry={params['ima_ml_entry']}",
-                **kwargs,
-            ))
+                kwargs = {}
+                if agent["ssl_context"]:
+                    kwargs["context"] = agent["ssl_context"]
 
-            if res.status_code != 200:
-                if res.status_code in [408, 500, 599]:
-                    asyncio.ensure_future(process_agent(agent, states.GET_QUOTE_RETRY))
+                loop = asyncio.get_event_loop()
+                res = loop.run_until_complete(tornado_requests.request(
+                    "GET",
+                    f"http://{agent['ip']}:{agent['port']}/v{agent['supported_version']}/quotes/container"
+                    f"?nonce={params['nonce']}&mask={params['mask']}"
+                    f"&partial={1}&ima_ml_entry={params['ima_ml_entry']}&containerid={container_id}",
+                    **kwargs,
+                ))
+
+                if res.status_code != 200:
+                    if res.status_code in [408, 500, 599]:
+                        asyncio.ensure_future(process_agent(agent, states.GET_QUOTE_RETRY))
+                    else:
+                        logger.critical(
+                            "Unexpected Get Quote response error for cloud agent %s, Error: %s",
+                            agent["agent_id"],
+                            res.status_code,
+                        )
+                        failure.add_event("no_quote", "Unexpected Get Quote reponse from agent", False)
+                        asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
+
                 else:
-                    logger.critical(
-                        "Unexpected Get Quote response error for cloud agent %s, Error: %s",
-                        agent["agent_id"],
-                        res.status_code,
-                    )
-                    failure.add_event("no_quote", "Unexpected Get Quote reponse from agent", False)
-                    asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
+                    try:
+                        json_response = json.loads(res.body)
 
-            else:
-                try:
-                    json_response = json.loads(res.body)
+                        if "provide_V" not in agent:
+                            agent["provide_V"] = True
+                        agentAttestState = get_AgentAttestStates().get_by_agent_id(agent["agent_id"])
 
-                    if "provide_V" not in agent:
-                        agent["provide_V"] = True
-                    agentAttestState = get_AgentAttestStates().get_by_agent_id(agent["agent_id"])
+                        if rmc:
+                            rmc.record_create(agent, json_response, runtime_policy)
 
-                    if rmc:
-                        rmc.record_create(agent, json_response, runtime_policy)
-
-                    failure = cloud_verifier_common.process_quote_response(
-                        agent,
-                        ima.deserialize_runtime_policy(runtime_policy),
-                        json_response["results"],
-                        agentAttestState,
-                    )
-                    if not failure:
-                        if agent["provide_V"]:
-                            asyncio.ensure_future(process_agent(agent, states.PROVIDE_V))
+                        failure = cloud_verifier_common.process_quote_response(
+                            agent,
+                            ima.deserialize_runtime_policy(runtime_policy),
+                            json_response["results"],
+                            agentAttestState,
+                        )
+                        if not failure:
+                            if agent["provide_V"]:
+                                asyncio.ensure_future(process_agent(agent, states.PROVIDE_V))
+                            else:
+                                asyncio.ensure_future(process_agent(agent, states.GET_QUOTE))
                         else:
-                            asyncio.ensure_future(process_agent(agent, states.GET_QUOTE))
-                    else:
-                        asyncio.ensure_future(process_agent(agent, states.INVALID_QUOTE, failure))
+                            asyncio.ensure_future(process_agent(agent, states.INVALID_QUOTE, failure))
 
-                    # store the attestation state
-                    store_attestation_state(agentAttestState)
+                        # store the attestation state
+                        store_attestation_state(agentAttestState)
 
-                    ima_measurement_list = (json_response["results"]).get("ima_measurement_list", None)
+                        namespace_list_str = json_response["ima_measurement_list_namespace"]
 
-                    ima_mes_lines = ima_measurement_list.split("\n")
+                        response = sign_and_prep(str.encode(namespace_list_str), )
+                        if response:
+                            web_util.echo_json_response(self, 200, "Success", response)
+                        else:
+                            web_util.echo_json_response(self, 400, "Not Supported")
 
-                    for linenum, line in enumerate(ima_mes_lines):
-                        tokens = line.split(" ")
-                        if tokens[2] == "ima-ng-ns-id" and int(tokens[5]) != ima_ns_id:
-                            ima_mes_lines.pop(linenum)
-
-                    namespace_list_str = ""
-
-                    for line in ima_mes_lines:
-                        namespace_list_str + line + '\n'
-
-                    response = sign_and_prep(str.encode(namespace_list_str), )
-                    if response:
-                        web_util.echo_json_response(self, 200, "Success", response)
-                    else:
-                        web_util.echo_json_response(self, 400, "Not Supported")
-
-                    
-
-                except Exception as e:
-                    logger.exception(e)
-                    failure.add_event(
-                        "exception", {"context": "Agent caused the verifier to throw an exception", "data": str(e)}, False
-                    )
-                    asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
+                    except Exception as e:
+                        logger.exception(e)
+                        failure.add_event(
+                            "exception", {"context": "Agent caused the verifier to throw an exception", "data": str(e)}, False
+                        )
+                        asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
 
 
 class AgentsHandler(BaseHandler):
@@ -1613,7 +1593,7 @@ def main() -> None:
 
     app = tornado.web.Application(
         [
-            (r"/v?[0-9]+(?:\.[0-9]+)?/agents/.*/ns/.*", AgentNsHandler),
+            (r"/v?[0-9]+(?:\.[0-9]+)?/container/.*", AgentNsHandler),
             (r"/v?[0-9]+(?:\.[0-9]+)?/agents/.*", AgentsHandler),
             (r"/v?[0-9]+(?:\.[0-9]+)?/allowlists/.*", AllowlistHandler),
             (r"/versions?", VersionHandler),

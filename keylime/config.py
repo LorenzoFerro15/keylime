@@ -164,7 +164,7 @@ def get_config(component: str) -> RawConfigParser:
         '\nPlease use "keylime_upgrade_config --defaults" to create a minimalistic set of configurations.\n'
     )
 
-    print(_config.values())
+
 
     if component not in _config:  # pylint: disable=too-many-nested-blocks
         # Use RawConfigParser, so we can also use it as the logging config
@@ -222,6 +222,7 @@ def get_config(component: str) -> RawConfigParser:
 
                 # Validate that at least one config file is present
                 config_file = _config[component].read(c)
+                print(config_file)
                 if config_file:
                     base_logger.info("Reading configuration from %s", config_file)
 

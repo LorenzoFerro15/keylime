@@ -653,7 +653,7 @@
             "tls_dir": {
                 "section": "tenant",
                 "option": "tls_dir",
-                "default": "generate"
+                "default": "default"
             },
             "enable_agent_mtls": {
                 "section": "tenant",
