@@ -30,6 +30,16 @@ def get_tpm_instance() -> Tpm:
 def get_AgentAttestStates() -> AgentAttestStates:
     return AgentAttestStates.get_instance()
 
+def find_last_vPCR(data: str, ns_id: int) -> str:
+    last_val: str = "";
+    data_arr = data.split("\n")
+    for element in data_arr:
+        if element != "":
+            tokens = element.split(" ")
+            if int(tokens[4]) == ns_id:
+                last_val = tokens[3]
+    return last_val
+
 
 def process_quote_response(
     agent: Dict[str, Any],
@@ -201,6 +211,28 @@ def process_quote_response(
         compressed=(agent["supported_version"] == "1.0"),
     )  # TODO: change this to always False after initial update
     failure.merge(quote_validation_failure)
+
+
+    if "ima_namespace_id" in agent.keys() and "ima_measurement_list_namespace" in agent.keys():
+        quote_vpcr = find_last_vPCR(agent["ima_measurement_list"], agent["ima_namespace_id"])
+        ima_measurement_list_namespace = agent["ima_measurement_list_namespace"]
+
+        quote_validation_failure = get_tpm_instance().check_quote(
+            agentAttestState,
+            agent["nonce"],
+            received_public_key,
+            quote_vpcr,
+            agent["ak_tpm"],
+            agent["tpm_policy"],
+            ima_measurement_list_namespace,
+            runtime_policy,
+            algorithms.Hash(hash_alg),
+            ima_keyrings,
+            mb_measurement_list,
+            agent["mb_refstate"],
+            compressed=(agent["supported_version"] == "1.0"),
+        )
+        failure.merge(quote_validation_failure)
 
     agent["last_received_quote"] = int(time.time())
 

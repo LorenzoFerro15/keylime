@@ -215,6 +215,23 @@ def _validate_ima_buf(
     # Anything else evaluates to true for now
     return failure
 
+def _validate_ima_dig_imaid(
+    digest: str,
+    ima_ns_id: int,
+) -> Failure:
+    failure = Failure(Component.IMA, ["validation", "ima-dig-imans"])
+
+    if ima_ns_id is None:
+        failure.add_event("no ns_ima_id present", f"does not have the identifier of the namespace", True)
+        return failure
+
+    if digest is None :
+        failure.add_event("no digest present", f"does not have the digst of the vPCR", True)
+        return failure
+
+    return failure
+
+
 
 def _process_measurement_list(
     agentAttestState: AgentAttestState,
@@ -285,6 +302,9 @@ def _process_measurement_list(
             ast.ImaBuf: functools.partial(
                 _validate_ima_buf, exclude_list_compiled_regex, runtime_policy, ima_keyrings, dm_validator
             ),
+            ast.ImaDigNs: functools.partial(
+                _validate_ima_dig_imaid
+            )
         }
     )
 

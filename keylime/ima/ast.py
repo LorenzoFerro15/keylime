@@ -238,6 +238,26 @@ class ImaNg(Mode):
     def is_data_valid(self, validator: Validator) -> Failure:
         return validator.get_validator(type(self))(self.digest, self.path)
 
+class ImaDigNs(Mode):
+    """
+    Class for "ima-dig-imaid". Contains the vPCR value and the IMA
+        namespace identifier of the namespace that sent the measure
+    """
+    digest: str
+    ima_ns_id: int
+
+    def __init__(self, data: str):
+        tokens = data.split(" ", maxsplit=1)
+        if len(tokens) != 2:
+            raise ParserError(f"Cannot create ImaDigNs expected 2 tokens got: {len(tokens)}.")
+        self.digest = str(tokens[0])
+        self.ima_ns_id = int(tokens[1])
+    
+    def bytes(self) -> bytes:
+        return str.encode(self.bytes) + str.encode(str(self.ima_ns_id))
+
+    def is_data_valid(self, validator: Validator) -> Failure:
+        return validator.get_validator(type(self))(self.digest, self.path, self.ns_id, self.counter)
 
 class ImaSig(Mode):
     """
@@ -333,11 +353,12 @@ class Entry:
     _ima_hash_alg: Hash
     _pcr_hash_alg: Hash
 
-    _mode_lookup: Dict[str, Union[typing.Type[Ima], typing.Type[ImaNg], typing.Type[ImaSig], typing.Type[ImaBuf]]] = {
+    _mode_lookup: Dict[str, Union[typing.Type[Ima], typing.Type[ImaNg], typing.Type[ImaSig], typing.Type[ImaBuf], typing.Type[ImaDigNs]]] = {
         "ima": Ima,
         "ima-ng": ImaNg,
         "ima-sig": ImaSig,
         "ima-buf": ImaBuf,
+        "ima-dig-imans": ImaDigNs,
     }
 
     def __init__(
