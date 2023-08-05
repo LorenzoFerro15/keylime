@@ -1,6 +1,7 @@
 from keylime import cloud_verifier_tornado, config, keylime_logging
 from keylime.common.migrations import apply
 from keylime.mba import mba
+import sys
 
 logger = keylime_logging.init_logging("verifier")
 
@@ -9,6 +10,9 @@ def main() -> None:
     # if we are configured to auto-migrate the DB, check if there are any migrations to perform
     if config.has_option("verifier", "auto_migrate_db") and config.getboolean("verifier", "auto_migrate_db"):
         apply("cloud_verifier")
+
+    if len(sys.argv) == 2:
+        container_id = sys.argv[1]  
 
     # Load explicitly the policy modules into Keylime for the verifier,
     # so that they are not loaded accidentally from other components

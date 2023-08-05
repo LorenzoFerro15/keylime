@@ -999,7 +999,8 @@ class AllowlistHandler(BaseHandler):
 
 
 async def invoke_get_quote(
-    agent: Dict[str, Any], runtime_policy: str, need_pubkey: bool, timeout: float = 60.0
+    agent: Dict[str, Any], runtime_policy: str, need_pubkey: bool, timeout: float = 60.0,
+    container_id: int = -1
 ) -> None:
     failure = Failure(Component.INTERNAL, ["verifier"])
 
@@ -1014,20 +1015,31 @@ async def invoke_get_quote(
     if agent["ssl_context"]:
         kwargs["context"] = agent["ssl_context"]
 
-    res = tornado_requests.request(
+    if container_id == -1:
+        res = tornado_requests.request(
+            "GET",
+            f"http://{agent['ip']}:{agent['port']}/v{agent['supported_version']}/quotes/integrity"
+            f"?nonce={params['nonce']}&mask={params['mask']}"
+            f"&partial={partial_req}&ima_ml_entry={params['ima_ml_entry']}",
+            **kwargs,
+            timeout=timeout,
+        )
+    else:
+        res = tornado_requests.request(
         "GET",
-        f"http://{agent['ip']}:{agent['port']}/v{agent['supported_version']}/quotes/integrity"
+        f"http://{agent['ip']}:{agent['port']}/v{agent['supported_version']}/quotes/container"
         f"?nonce={params['nonce']}&mask={params['mask']}"
-        f"&partial={partial_req}&ima_ml_entry={params['ima_ml_entry']}",
+        f"&partial={partial_req}&ima_ml_entry={params['ima_ml_entry']}&containerid={container_id}",
         **kwargs,
         timeout=timeout,
     )
+
     response = await res
 
     if response.status_code != 200:
         # this is a connection error, retry get quote
         if response.status_code in [408, 500, 599]:
-            asyncio.ensure_future(process_agent(agent, states.GET_QUOTE_RETRY))
+            asyncio.ensure_future(process_agent(agent, states.GET_QUOTE_RETRY, container_id=container_id))
         else:
             # catastrophic error, do not continue
             logger.critical(
@@ -1036,7 +1048,7 @@ async def invoke_get_quote(
                 response.status_code,
             )
             failure.add_event("no_quote", "Unexpected Get Quote reponse from agent", False)
-            asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
+            asyncio.ensure_future(process_agent(agent, states.FAILED, failure, container_id=container_id))
     else:
         try:
             json_response = json.loads(response.body)
@@ -1057,11 +1069,11 @@ async def invoke_get_quote(
             )
             if not failure:
                 if agent["provide_V"]:
-                    asyncio.ensure_future(process_agent(agent, states.PROVIDE_V))
+                    asyncio.ensure_future(process_agent(agent, states.PROVIDE_V, container_id=container_id))
                 else:
-                    asyncio.ensure_future(process_agent(agent, states.GET_QUOTE))
+                    asyncio.ensure_future(process_agent(agent, states.GET_QUOTE, container_id=container_id))
             else:
-                asyncio.ensure_future(process_agent(agent, states.INVALID_QUOTE, failure))
+                asyncio.ensure_future(process_agent(agent, states.INVALID_QUOTE, failure, container_id=container_id))
 
             # store the attestation state
             store_attestation_state(agentAttestState)
@@ -1071,7 +1083,7 @@ async def invoke_get_quote(
             failure.add_event(
                 "exception", {"context": "Agent caused the verifier to throw an exception", "data": str(e)}, False
             )
-            asyncio.ensure_future(process_agent(agent, states.FAILED, failure))
+            asyncio.ensure_future(process_agent(agent, states.FAILED, failure, container_id=container_id))
 
 
 async def invoke_provide_v(agent: Dict[str, Any], timeout: float = 60.0) -> None:
@@ -1179,7 +1191,7 @@ async def notify_error(
 
 
 async def process_agent(
-    agent: Dict[str, Any], new_operational_state: int, failure: Failure = Failure(Component.INTERNAL, ["verifier"])
+    agent: Dict[str, Any], new_operational_state: int, failure: Failure = Failure(Component.INTERNAL, ["verifier"]), container_id: int = -1
 ) -> None:
     session = get_session()
     try:  # pylint: disable=R1702
@@ -1270,14 +1282,14 @@ async def process_agent(
                 logger.warning("Agent %s failed, stopping polling", agent["agent_id"])
                 return
 
-            await invoke_get_quote(agent, runtime_policy, False, timeout=timeout)
+            await invoke_get_quote(agent, runtime_policy, False, timeout=timeout, container_id=container_id)
             return
 
         # if new, get a quote
         if main_agent_operational_state == states.START and new_operational_state == states.GET_QUOTE:
             agent["num_retries"] = 0
             agent["operational_state"] = states.GET_QUOTE
-            await invoke_get_quote(agent, runtime_policy, True, timeout=timeout)
+            await invoke_get_quote(agent, runtime_policy, True, timeout=timeout, container_id=container_id)
             return
 
         if main_agent_operational_state == states.GET_QUOTE and new_operational_state == states.PROVIDE_V:
@@ -1294,14 +1306,14 @@ async def process_agent(
             interval = config.getfloat("verifier", "quote_interval")
             agent["operational_state"] = states.GET_QUOTE
             if interval == 0:
-                await invoke_get_quote(agent, runtime_policy, False, timeout=timeout)
+                await invoke_get_quote(agent, runtime_policy, False, timeout=timeout, container_id=container_id)
             else:
                 logger.debug(
                     "Setting up callback to check agent ID %s again in %f seconds", agent["agent_id"], interval
                 )
 
                 pending = tornado.ioloop.IOLoop.current().call_later(
-                    interval, invoke_get_quote, agent, runtime_policy, False, timeout=timeout  # type: ignore  # due to python <3.9
+                    interval, invoke_get_quote, agent, runtime_policy, False, timeout=timeout, container_id=container_id  # type: ignore  # due to python <3.9
                 )
                 agent["pending_event"] = pending
             return
@@ -1322,7 +1334,7 @@ async def process_agent(
                     )
                 else:
                     logger.debug("Communication error for new agent. No notification will be sent")
-                await process_agent(agent, states.FAILED, failure)
+                await process_agent(agent, states.FAILED, failure, container_id=container_id)
             else:
                 agent["operational_state"] = states.GET_QUOTE
 
@@ -1336,7 +1348,7 @@ async def process_agent(
                     next_retry,
                 )
                 tornado.ioloop.IOLoop.current().call_later(
-                    next_retry, invoke_get_quote, agent, runtime_policy, True, timeout=timeout  # type: ignore  # due to python <3.9
+                    next_retry, invoke_get_quote, agent, runtime_policy, True, timeout=timeout, container_id=container_id  # type: ignore  # due to python <3.9
                 )
             return
 
@@ -1349,7 +1361,7 @@ async def process_agent(
                 )
                 failure.add_event("not_reachable_v", "agent was not reachable to provide V", False)
                 await notify_error(agent, msgtype="comm_error", event=failure.highest_severity_event, timeout=timeout)
-                await process_agent(agent, states.FAILED, failure)
+                await process_agent(agent, states.FAILED, failure, container_id=container_id)
             else:
                 agent["operational_state"] = states.PROVIDE_V
 
@@ -1374,10 +1386,10 @@ async def process_agent(
         failure.add_event(
             "exception", {"context": "Agent caused the verifier to throw an exception", "data": str(e)}, False
         )
-        await process_agent(agent, states.FAILED, failure)
+        await process_agent(agent, states.FAILED, failure, container_id=container_id)
 
 
-async def activate_agents(agents: List[VerfierMain], verifier_ip: str, verifier_port: int) -> None:
+async def activate_agents(agents: List[VerfierMain], verifier_ip: str, verifier_port: int, container_id: int = -1) -> None:
     aas = get_AgentAttestStates()
     for agent in agents:
         agent.verifier_ip = verifier_ip  # pyright: ignore
@@ -1389,7 +1401,7 @@ async def activate_agents(agents: List[VerfierMain], verifier_ip: str, verifier_
             )
 
         if agent.operational_state == states.START:  # pyright: ignore
-            asyncio.ensure_future(process_agent(agent_run, states.GET_QUOTE))
+            asyncio.ensure_future(process_agent(agent_run, states.GET_QUOTE, container_id=container_id))
         if agent.boottime:  # pyright: ignore
             ima_pcrs_dict = {}
             assert isinstance(agent.ima_pcrs, list)
@@ -1413,7 +1425,7 @@ def get_agents_by_verifier_id(verifier_id: str) -> List[VerfierMain]:
     return []
 
 
-def main() -> None:
+def main(container_id: int=-1) -> None:
     """Main method of the Cloud Verifier Server.  This method is encapsulated in a function for packaging to allow it to be
     called as a function by an external program."""
 
@@ -1466,7 +1478,7 @@ def main() -> None:
 
     sockets = tornado.netutil.bind_sockets(int(verifier_port), address=verifier_host)
 
-    def server_process(task_id: int, agents: List[VerfierMain]) -> None:
+    def server_process(task_id: int, agents: List[VerfierMain], container_id: int = -1) -> None:
         logger.info("Starting server of process %s", task_id)
         assert isinstance(engine, Engine)
         engine.dispose()
@@ -1493,7 +1505,7 @@ def main() -> None:
 
         server.start()
         # Reactivate agents
-        asyncio.ensure_future(activate_agents(agents, verifier_host, int(verifier_port)))
+        asyncio.ensure_future(activate_agents(agents, verifier_host, int(verifier_port), container_id))
         tornado.ioloop.IOLoop.current().start()
         logger.debug("Server %s stopped.", task_id)
         sys.exit(0)
@@ -1525,6 +1537,6 @@ def main() -> None:
     agents = get_agents_by_verifier_id(verifier_id)
     for task_id in range(0, num_workers):
         active_agents = [agents[i] for i in range(task_id, len(agents), num_workers)]
-        process = Process(target=server_process, args=(task_id, active_agents))
+        process = Process(target=server_process, args=(task_id, active_agents, container_id))
         process.start()
         processes.append(process)
